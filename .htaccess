@@ -1,0 +1,6 @@
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+RewriteCond %{HTTP:X-WC-Webhook-Signature} .
+RewriteRule .* - [E=HTTP_WC_WEBHOOK_SIGNATURE:%{HTTP:X-WC-Webhook-Signature}]
+</IfModule>

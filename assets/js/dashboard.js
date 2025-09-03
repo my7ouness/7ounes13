@@ -1,173 +1,137 @@
 document.addEventListener('DOMContentLoaded', function() {
+    const workflowSelector = document.getElementById('workflow-selector');
     const pickerElement = document.getElementById('date-range-picker');
-    if (!pickerElement) return;
+    if (!workflowSelector || !pickerElement) return;
 
-    /**
-     * Helper function to update a KPI card's text and color on the UI.
-     * @param {string} id - The HTML ID of the element to update.
-     * @param {string} value - The new value to display.
-     * @param {boolean} isMonetary - If true, prepends the currency symbol.
-     */
+    let datePicker;
+    let currentWorkflowId = null;
+
+    // --- Helper & Render Functions ---
     function updateKpi(id, value, isMonetary = false) {
         const element = document.getElementById(id);
-        if (!element) {
-            console.warn(`KPI element with ID "${id}" not found.`);
+        if (element) {
+            const currency = isMonetary ? 'MAD ' : '';
+            element.textContent = currency + value;
+        }
+    }
+
+    function renderPlatformBreakdown(platforms) {
+        const container = document.getElementById('platform-performance-grid');
+        let html = '';
+        for (const [platform, data] of Object.entries(platforms)) {
+            html += `
+                <div class="kpi-card"><h3>${platform} Spend</h3><div class="value">MAD ${data.spend}</div></div>
+                <div class="kpi-card"><h3>${platform} CPM</h3><div class="value">MAD ${data.cpm}</div></div>`;
+        }
+        container.innerHTML = html || '<div class="kpi-card"><p>No ad platform data found.</p></div>';
+    }
+
+    function renderTable(tbodyId, data, columns) {
+        const tbody = document.getElementById(tbodyId);
+        const colspan = columns.length;
+        if (!data || data.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="${colspan}" class="text-center empty-cell">No data for this period.</td></tr>`;
             return;
         }
+        tbody.innerHTML = data.map(row => `<tr>${columns.map(col => {
+            let value = row[col.key];
+            let cellClass = col.class ? col.class(row) : '';
+            return `<td class="${cellClass}">${value}</td>`;
+        }).join('')}</tr>`).join('');
+    }
+
+    // --- Main Data Fetching Function ---
+    async function fetchDashboardData() {
+        if (!currentWorkflowId || !datePicker.getStartDate() || !datePicker.getEndDate()) return;
         
-        let displayValue = isMonetary ? 'MAD ' + value : value;
-        element.textContent = displayValue;
-
-        // Apply color formatting for Net Profit and "Orders to be Profitable"
-        if (id === 'net-profit-value') {
-            element.classList.remove('positive', 'negative');
-            const numericValue = parseFloat(String(value).replace(/,/g, ''));
-            if (numericValue >= 0) {
-                element.classList.add('positive');
-            } else {
-                element.classList.add('negative');
-            }
-        }
-        if (id === 'orders-to-be-profitable-value') {
-            element.classList.remove('positive', 'negative');
-            const numericValue = parseInt(String(value).replace(/,/g, ''));
-             if (numericValue <= 0) {
-                element.classList.add('positive'); // It's positive if you've already met the goal
-            }
-        }
-    }
-
-    /**
-     * Populates the recent orders widget with data from the API.
-     * @param {Array} orders - An array of order objects.
-     */
-    function updateOrdersWidget(orders) {
-        const tbody = document.getElementById('orders-widget-tbody');
-        if (!tbody) return;
-
-        if (!orders || orders.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 20px;">No orders found in this period.</td></tr>`;
-            return;
-        }
-
-        let tableHtml = '';
-        orders.forEach(order => {
-            const orderDate = new Date(order.order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-            const status = order.shipping_status || 'pending';
-            tableHtml += `
-                <tr>
-                    <td>#${order.platform_order_id}</td>
-                    <td>${orderDate}</td>
-                    <td>MAD ${parseFloat(order.total_revenue).toFixed(2)}</td>
-                    <td><span class="status-${status}">${status}</span></td>
-                </tr>
-            `;
-        });
-        tbody.innerHTML = tableHtml;
-    }
-
-    /**
-     * Main function to fetch all dashboard data from the backend API.
-     * @param {Date} startDate - The start of the date range.
-     * @param {Date} endDate - The end of the date range.
-     */
-    async function fetchDashboardData(startDate, endDate) {
-        const allKpiElements = document.querySelectorAll('.kpi-card .value, #orders-widget-tbody');
-        allKpiElements.forEach(el => {
-            if (el.tagName === 'TBODY') {
-                 el.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 20px;">Loading...</td></tr>`;
-            } else {
-                el.textContent = 'Loading...';
-            }
+        // Set loading states
+        document.querySelectorAll('.value').forEach(el => el.textContent = '...');
+        document.getElementById('net-profit-banner').classList.remove('is-positive', 'is-negative');
+        document.querySelectorAll('tbody').forEach(tbody => {
+            const colspan = tbody.previousElementSibling.querySelectorAll('th').length;
+            tbody.innerHTML = `<tr><td colspan="${colspan}" class="text-center loading-cell"><span></span>Loading...</td></tr>`;
         });
 
-        const start = startDate.toISOString().split('T')[0];
-        const end = endDate.toISOString().split('T')[0];
-        const apiUrl = `${BASE_URL}/api/dashboard-data.php?start=${start}&end=${end}`;
+        // --- THIS IS THE FIX ---
+        // We now access .dateInstance to get the correct JavaScript Date object
+        const start = datePicker.getStartDate().dateInstance.toISOString().split('T')[0];
+        const end = datePicker.getEndDate().dateInstance.toISOString().split('T')[0];
+        // --- END OF FIX ---
+        
+        const apiUrl = `${BASE_URL}/api/dashboard-data.php?workflow_id=${currentWorkflowId}&start=${start}&end=${end}`;
 
         try {
             const response = await fetch(apiUrl);
-            
-            if (!response.ok) {
-                throw new Error(`Server responded with status: ${response.status}`);
-            }
-
+            if (!response.ok) throw new Error(`Server Error: ${response.status}`);
             const data = await response.json();
 
-            if (data.kpis) {
-                const kpis = data.kpis;
-                
-                // Update all KPI elements on the page
-                updateKpi('net-profit-value', kpis.net_profit, true);
-                updateKpi('delivered-revenue-value', kpis.delivered_revenue, true);
-                updateKpi('total-costs-value', kpis.total_costs, true);
-                updateKpi('roas-value', kpis.roas);
-                
-                // --- Update New Ad Performance KPIs ---
-                updateKpi('ad-spend-value', kpis.total_ad_spend, true);
-                updateKpi('total-clicks-value', kpis.total_clicks);
-                updateKpi('avg-cpc-value', kpis.avg_cpc, true);
-                updateKpi('avg-cpm-value', kpis.avg_cpm, true);
-                updateKpi('avg-ctr-value', kpis.avg_ctr);
-                
-                updateKpi('break-even-orders-value', kpis.break_even_orders);
-                updateKpi('orders-to-be-profitable-value', kpis.orders_to_be_profitable);
-                
-                updateKpi('delivered-orders-value', kpis.delivered_orders);
-                updateKpi('returned-orders-value', kpis.returned_orders);
-                updateKpi('delivery-rate-value', kpis.delivery_rate);
-
-                // Update the new orders widget
-                updateOrdersWidget(data.orders_widget_data);
-
-            } else {
-                console.error("API returned no KPI data:", data.error || "Unknown error.");
-                allKpiElements.forEach(el => el.textContent = 'Data Error');
+            // Populate Banner
+            const netProfit = parseFloat(data.net_profit_banner.net_profit);
+            updateKpi('net-profit-value', netProfit.toFixed(2), true);
+            document.getElementById('net-profit-banner').classList.add(netProfit >= 0 ? 'is-positive' : 'is-negative');
+            
+            // Populate KPIs
+            for (const [key, value] of Object.entries(data.kpis)) {
+                const elementId = key.replace(/_/g, '-') + '-value';
+                const isMonetary = ['delivered_revenue', 'total_costs', 'pending_profit', 'lost_profit_rto', 'cost_per_delivered', 'gross_sales'].includes(key);
+                updateKpi(elementId, value, isMonetary);
             }
+
+            // Populate Breakdowns
+            renderPlatformBreakdown(data.platform_breakdown);
+            renderTable('product-profitability-tbody', data.product_profitability, [
+                { key: 'name' }, { key: 'units_sold' }, { key: 'revenue' }, { key: 'cogs' }, { key: 'ad_spend' },
+                { key: 'net_profit', class: r => parseFloat(r.net_profit) >= 0 ? 'positive-text' : 'negative-text' }
+            ]);
+            renderTable('campaign-breakdown-tbody', data.campaign_breakdown, [{ key: 'name' }, { key: 'spend' }, { key: 'cpm' }]);
+            renderTable('recent-orders-tbody', data.recent_orders, [
+                { key: 'order_id' }, { key: 'date' }, { key: 'revenue' }, { key: 'platform' },
+                { key: 'status', class: r => `status-${r.status}` }
+            ]);
+
         } catch (error) {
             console.error("Error fetching dashboard data:", error);
-            allKpiElements.forEach(el => el.textContent = 'Network Error');
         }
     }
 
-    // Initialize the Litepicker date range selector
-    const picker = new Litepicker({
-        element: pickerElement,
-        singleMode: false,
-        format: 'MMM D, YYYY',
-        plugins: ['ranges'],
-        ranges: {
-            'Today': [new Date(), new Date()],
-            'Yesterday': [
-                (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d; })(),
-                (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d; })()
-            ],
-            'Last 7 Days': [
-                (() => { const d = new Date(); d.setDate(d.getDate() - 6); return d; })(),
-                new Date()
-            ],
-            'Last 30 Days': [
-                (() => { const d = new Date(); d.setDate(d.getDate() - 29); return d; })(),
-                new Date()
-            ],
-            'This Month': [
-                (() => { const d = new Date(); d.setDate(1); return d; })(),
-                new Date()
-            ],
-        },
-        setup: (picker) => {
-            // Bind the data fetching function to the date selection event
-            picker.on('selected', (date1, date2) => {
-                if (date1 && date2) {
-                    fetchDashboardData(date1.dateInstance, date2.dateInstance);
-                }
-            });
+    // --- Initialization ---
+    async function initializeDashboard() {
+        // 1. Fetch workflows and populate selector
+        try {
+            const response = await fetch(`${BASE_URL}/api/dashboard-data.php?action=get_workflows`);
+            const workflows = await response.json();
+            if (workflows.length > 0) {
+                workflowSelector.innerHTML = workflows.map(w => `<option value="${w.id}">${w.name}</option>`).join('');
+                currentWorkflowId = workflows[0].id; // Select the first workflow
+                workflowSelector.addEventListener('change', (e) => {
+                    currentWorkflowId = e.target.value;
+                    fetchDashboardData();
+                });
+            } else {
+                workflowSelector.innerHTML = '<option>No workflows found</option>';
+            }
+        } catch (error) {
+            workflowSelector.innerHTML = '<option>Error loading</option>';
         }
-    });
 
-    // Perform the initial data load for "Today"
-    const today = new Date();
-    fetchDashboardData(today, today);
-    // Set the initial visual value in the picker to show "Today"
-    picker.setDateRange(today, today);
+        // 2. Initialize Date Picker
+        datePicker = new Litepicker({
+            element: pickerElement,
+            singleMode: false,
+            format: 'MMM D, YYYY',
+            plugins: ['ranges'],
+            setup: (picker) => {
+                picker.on('selected', fetchDashboardData);
+            }
+        });
+        datePicker.setDateRange(new Date(), new Date());
+
+        // 3. Initial data load
+        if (currentWorkflowId) {
+            fetchDashboardData();
+        }
+    }
+
+    initializeDashboard();
 });
+

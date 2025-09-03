@@ -26,7 +26,13 @@ $workflow_id = $workflow_stmt->fetchColumn();
 
 if (!$workflow_id) {
     // Return empty but valid data if no workflow exists, prevents front-end error
-    $empty_kpis = [ 'net_profit' => '0.00', 'delivered_revenue' => '0.00', 'total_costs' => '0.00', 'roas' => '0.00', 'break_even_orders' => 0, 'orders_to_be_profitable' => 0, 'delivered_orders' => 0, 'returned_orders' => 0, 'delivery_rate' => '0.00%' ];
+    $empty_kpis = [ 
+        'net_profit' => '0.00', 'delivered_revenue' => '0.00', 'total_costs' => '0.00', 
+        'roas' => '0.00', 'break_even_orders' => 0, 'orders_to_be_profitable' => 0, 
+        'delivered_orders' => 0, 'returned_orders' => 0, 'delivery_rate' => '0.00%',
+        'total_ad_spend' => '0.00', 'avg_cpc' => '0.00', 'avg_cpm' => '0.00', 
+        'avg_ctr' => '0.00%', 'total_clicks' => 0
+    ];
     echo json_encode(['kpis' => $empty_kpis, 'orders_widget_data' => []]);
     exit();
 }
@@ -59,25 +65,60 @@ try {
 
 
     // =================================================================
-    // 2. FETCH LIVE DATA FROM EXTERNAL APIS
+    // 2. FETCH LIVE DATA FROM EXTERNAL APIS (EXPANDED)
     // =================================================================
 
     $total_ad_spend = 0;
+    $total_clicks = 0;
+    $total_impressions = 0;
+    $weighted_cpc_sum = 0;
+    $weighted_cpm_sum = 0;
+    $weighted_ctr_sum = 0;
+
     foreach ($ad_accounts as $ad_account) {
         if ($ad_account['platform'] === 'facebook') {
             $url = "https://graph.facebook.com/v18.0/{$ad_account['account_id']}/insights";
-            $params = [ 'access_token' => $ad_account['access_token'], 'level' => 'account', 'fields' => 'spend', 'time_range' => json_encode(['since' => $start_date, 'until' => $end_date]), ];
+            // EXPANDED aPI call fields
+            $params = [
+                'access_token' => $ad_account['access_token'],
+                'level' => 'account',
+                'fields' => 'spend,cpc,cpm,ctr,clicks,impressions', // <-- Added new fields
+                'time_range' => json_encode(['since' => $start_date, 'until' => $end_date]),
+            ];
             $url .= '?' . http_build_query($params);
+            
             $ch = curl_init($url);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             $response = curl_exec($ch);
             curl_close($ch);
+            
             $insights = json_decode($response, true);
-            if (isset($insights['data'][0]['spend'])) {
-                $total_ad_spend += (float)$insights['data'][0]['spend'];
+            
+            if (isset($insights['data'][0])) {
+                $data = $insights['data'][0];
+                $spend = (float)($data['spend'] ?? 0);
+                $clicks = (int)($data['clicks'] ?? 0);
+                $impressions = (int)($data['impressions'] ?? 0);
+
+                $total_ad_spend += $spend;
+                $total_clicks += $clicks;
+                $total_impressions += $impressions;
+                
+                // For calculating a weighted average for CPC, CPM, CTR
+                if ($spend > 0) {
+                    $weighted_cpc_sum += (float)($data['cpc'] ?? 0) * $spend;
+                    $weighted_cpm_sum += (float)($data['cpm'] ?? 0) * $spend;
+                    $weighted_ctr_sum += (float)($data['ctr'] ?? 0) * $spend;
+                }
             }
         }
     }
+    
+    // Calculate weighted averages
+    $avg_cpc = ($total_ad_spend > 0) ? $weighted_cpc_sum / $total_ad_spend : 0;
+    $avg_cpm = ($total_ad_spend > 0) ? $weighted_cpm_sum / $total_ad_spend : 0;
+    $avg_ctr = ($total_ad_spend > 0) ? $weighted_ctr_sum / $total_ad_spend : 0;
+
 
     // =================================================================
     // 3. PERFORM REAL-TIME CALCULATION
@@ -151,6 +192,12 @@ try {
             'roas' => number_format($roas, 2),
             'break_even_orders' => ceil($break_even_orders),
             'orders_to_be_profitable' => max(0, ceil($break_even_orders) - $delivered_orders_count),
+            // --- ADDED NEW KPIS ---
+            'total_ad_spend' => number_format($total_ad_spend, 2),
+            'avg_cpc' => number_format($avg_cpc, 2),
+            'avg_cpm' => number_format($avg_cpm, 2),
+            'avg_ctr' => number_format($avg_ctr, 2) . '%',
+            'total_clicks' => number_format($total_clicks),
         ],
         'orders_widget_data' => array_slice($orders, 0, 10)
     ];

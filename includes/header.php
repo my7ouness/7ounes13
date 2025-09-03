@@ -15,6 +15,7 @@ require_once 'functions.php';
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litepicker/dist/css/litepicker.css"/>
 
 </head>
@@ -22,17 +23,17 @@ require_once 'functions.php';
     <header class="main-header">
         <div class="container">
             <div class="logo">
-                <!-- Use the BASE_URL constant here -->
                 <a href="<?php echo BASE_URL; ?>/dashboard.php">COD Profit Hub</a>
             </div>
             <nav class="main-nav">
-                <?php if (isset($_SESSION['user'])): ?>
+                <?php if (isset($_SESSION['user'])): 
+                    $current_page = basename($_SERVER['SCRIPT_NAME']);
+                ?>
                     <ul>
-                        <!-- Use the BASE_URL constant for all links -->
-                        <li><a href="<?php echo BASE_URL; ?>/dashboard.php">Dashboard</a></li>
-                        <li><a href="<?php echo BASE_URL; ?>/products.php">Products</a></li>
-                        <li><a href="<?php echo BASE_URL; ?>/setup.php">Setup</a></li>
-                        <li><a href="<?php echo BASE_URL; ?>/account.php">Account</a></li>
+                        <li><a href="<?php echo BASE_URL; ?>/dashboard.php" class="<?php echo $current_page === 'dashboard.php' ? 'active' : ''; ?>">Dashboard</a></li>
+                        <li><a href="<?php echo BASE_URL; ?>/products.php" class="<?php echo $current_page === 'products.php' ? 'active' : ''; ?>">Products</a></li>
+                        <li><a href="<?php echo BASE_URL; ?>/workflows.php" class="<?php echo in_array($current_page, ['workflows.php', 'create-workflow.php', 'setup.php']) ? 'active' : ''; ?>">Workflows</a></li>
+                        <li><a href="<?php echo BASE_URL; ?>/account.php" class="<?php echo $current_page === 'account.php' ? 'active' : ''; ?>">Account</a></li>
                         <li><a href="<?php echo BASE_URL; ?>/logout.php" class="btn btn-secondary">Log Out</a></li>
                     </ul>
                 <?php endif; ?>
@@ -41,3 +42,4 @@ require_once 'functions.php';
     </header>
     <main class="main-content">
         <div class="container">
+

@@ -103,6 +103,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateKpi('total-costs-value', kpis.total_costs, true);
                 updateKpi('roas-value', kpis.roas);
                 
+                // --- Update New Ad Performance KPIs ---
+                updateKpi('ad-spend-value', kpis.total_ad_spend, true);
+                updateKpi('total-clicks-value', kpis.total_clicks);
+                updateKpi('avg-cpc-value', kpis.avg_cpc, true);
+                updateKpi('avg-cpm-value', kpis.avg_cpm, true);
+                updateKpi('avg-ctr-value', kpis.avg_ctr);
+                
                 updateKpi('break-even-orders-value', kpis.break_even_orders);
                 updateKpi('orders-to-be-profitable-value', kpis.orders_to_be_profitable);
                 

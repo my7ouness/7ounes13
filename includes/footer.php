@@ -25,7 +25,12 @@
     $current_page = basename($_SERVER['SCRIPT_NAME']);
     if ($current_page === 'dashboard.php'): ?>
         <script src="<?php echo BASE_URL; ?>/assets/js/dashboard.js"></script>
+    <?php elseif ($current_page === 'setup.php'): ?>
+        <script src="<?php echo BASE_URL; ?>/assets/js/setup.js"></script>
+    <?php elseif ($current_page === 'create-workflow.php'): ?>
+        <script src="<?php echo BASE_URL; ?>/assets/js/workflow-builder.js"></script>
     <?php endif; ?>
 
 </body>
 </html>
+

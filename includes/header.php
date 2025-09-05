@@ -10,7 +10,6 @@ require_once 'functions.php';
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>COD Profit Hub</title>
     
-    <!-- Use the BASE_URL constant here -->
     <link rel="stylesheet" href="<?php echo BASE_URL; ?>/assets/css/style.css">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,7 +22,9 @@ require_once 'functions.php';
     <header class="main-header">
         <div class="container">
             <div class="logo">
-                <a href="<?php echo BASE_URL; ?>/dashboard.php">COD Profit Hub</a>
+                <a href="<?php echo BASE_URL; ?>/dashboard.php">
+                    <img src="<?php echo BASE_URL; ?>/assets/images/logos/logos.png" alt="COD Profit Hub Logo" class="logo-img">
+                </a>
             </div>
             <nav class="main-nav">
                 <?php if (isset($_SESSION['user'])): 
@@ -42,4 +43,3 @@ require_once 'functions.php';
     </header>
     <main class="main-content">
         <div class="container">
-

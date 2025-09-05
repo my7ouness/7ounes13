@@ -5,6 +5,8 @@ define('SUPABASE_ANON_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdX
 
 // === ADD THIS LINE ===
 define('BASE_URL', '/cod-profit-hub');
+// The EXCHANGERATE_API_KEY is no longer needed.
+
 // --- DATABASE CONNECTION DETAILS (USING THE IPV4-COMPATIBLE TRANSACTION POOLER) ---
 $db_host = 'aws-1-eu-north-1.pooler.supabase.com'; 
 $db_port = '6543';                                

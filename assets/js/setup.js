@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', function() {
     const modalOverlay = document.getElementById('modal-overlay');
     const mainModal = document.getElementById('main-modal');
+    const addConnectionBtn = document.querySelector('.add-node-btn'); // Find button by class
 
     if (!modalOverlay || !mainModal) return;
 
@@ -20,23 +21,24 @@ document.addEventListener('DOMContentLoaded', function() {
         modalOverlay.style.display = 'none';
         mainModal.innerHTML = '';
     }
+    
+    // --- DIRECT EVENT LISTENER USING THE CLASS ---
+    if (addConnectionBtn) {
+        addConnectionBtn.addEventListener('click', function() {
+            openModal('template-select-type');
+        });
+    }
 
-    // Use event delegation for dynamically added elements
+    // Use event delegation for elements INSIDE the modal
     document.body.addEventListener('click', function(event) {
-        const addConnectionBtn = event.target.closest('#add-connection-btn, .add-node-btn');
         const closeButton = event.target.closest('.close-button');
         const choiceCard = event.target.closest('.choice-card');
 
-        if (addConnectionBtn) {
-            openModal('template-select-type');
-            return;
-        }
         if (closeButton) {
             closeModal();
             return;
         }
         if (choiceCard) {
-            // Prevent action on disabled cards (like Shopify)
             if (choiceCard.getAttribute('onclick')) return;
             const nextTemplateId = choiceCard.dataset.nextTemplate;
             if (nextTemplateId) openModal(nextTemplateId);
@@ -52,6 +54,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const testBtn = document.getElementById('test-connection-btn');
         const fetchBtn = document.getElementById('fetch-campaigns-btn');
         const resultsDiv = document.getElementById('connection-test-results');
+
+        if (!testBtn || !fetchBtn || !resultsDiv) return;
 
         testBtn.addEventListener('click', async () => {
             const accountId = document.getElementById('fb_account_id').value;
@@ -115,9 +119,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 if (!result.success) throw new Error(result.message);
                 
-                // CRITICAL FIX: Handle the "no campaigns found" case gracefully
                 if (result.campaigns.length === 0) {
-                    campaignListContainer.innerHTML = '<p style="text-align:center; color: var(--text-light);">No campaigns were found in this ad account. You can still save the connection.</p>';
+                    campaignListContainer.innerHTML = '<p style="text-align:center; color: var(--text-light);">No campaigns were found. You can still save the connection.</p>';
                 } else {
                     let checkboxesHTML = '';
                     result.campaigns.forEach(campaign => {
@@ -131,16 +134,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     campaignListContainer.innerHTML = checkboxesHTML;
                 }
                 
-                // Transition to the next step
                 document.getElementById('fb-step-1').style.display = 'none';
                 document.getElementById('fb-step-2').style.display = 'block';
 
             } catch (error) {
-                alert('Error fetching campaigns: ' . error.message);
+                alert('Error fetching campaigns: ' + error.message);
                 fetchBtn.disabled = false;
                 fetchBtn.textContent = 'Next: Fetch Campaigns';
             }
         });
     }
 });
-

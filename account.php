@@ -1,9 +1,9 @@
 <?php
 require_once 'includes/header.php';
 require_login();
-// We don't need require_setup() here, as users should always be able to access their account.
 
 $user_email = $_SESSION['user']['email'];
+$user_id = $_SESSION['user']['id']; // Get the user ID from the session
 $access_token = $_SESSION['user']['access_token'];
 $message = '';
 $error = '';
@@ -15,13 +15,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
     if (empty($new_password) || strlen($new_password) < 6) {
         $error = 'Password must be at least 6 characters long.';
     } else {
-        // Prepare the data for the Supabase API
         $data = json_encode(['password' => $new_password]);
         
-        // cURL request to Supabase user update endpoint
         $ch = curl_init(SUPABASE_URL . '/auth/v1/user');
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT'); // Use PUT for updates
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'apikey: ' . SUPABASE_ANON_KEY,
             'Authorization: Bearer ' . $access_token,
@@ -51,6 +49,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['change_password'])) {
     <div class="form-group">
         <label>Email Address</label>
         <input type="email" value="<?php echo htmlspecialchars($user_email); ?>" disabled>
+    </div>
+    <div class="form-group">
+        <label>User ID (from your current session)</label>
+        <input type="text" value="<?php echo htmlspecialchars($user_id); ?>" disabled>
     </div>
 </div>
 

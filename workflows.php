@@ -1,6 +1,6 @@
 <?php
 require_once 'includes/header.php';
-require_login(); // We only require login, NOT setup, on this page. This is a critical fix.
+require_login();
 
 $user_id = $_SESSION['user']['id'];
 $message = '';
@@ -9,18 +9,11 @@ $error = '';
 // --- Handle Workflow Deletion ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_workflow'])) {
     $workflow_id_to_delete = $_POST['workflow_id'];
+    // Cascading deletes in the DB now handle the cleanup
     try {
-        $stmt_check = $pdo->prepare("SELECT (SELECT COUNT(*) FROM stores WHERE workflow_id = ?) + (SELECT COUNT(*) FROM ad_accounts WHERE workflow_id = ?) + (SELECT COUNT(*) FROM shipping_carriers WHERE workflow_id = ?) + (SELECT COUNT(*) FROM costs WHERE workflow_id = ?)");
-        $stmt_check->execute(array_fill(0, 4, $workflow_id_to_delete));
-        $connection_count = $stmt_check->fetchColumn();
-
-        if ($connection_count > 0) {
-            $error = "Cannot delete workflow. Please remove all connected services from this workflow first via the 'Manage' page.";
-        } else {
-            $stmt_delete = $pdo->prepare("DELETE FROM workflows WHERE id = ? AND user_id = ?");
-            $stmt_delete->execute([$workflow_id_to_delete, $user_id]);
-            $message = "Workflow deleted successfully.";
-        }
+        $stmt_delete = $pdo->prepare("DELETE FROM workflows WHERE id = ? AND user_id = ?");
+        $stmt_delete->execute([$workflow_id_to_delete, $user_id]);
+        $message = "Workflow deleted successfully.";
     } catch (PDOException $e) {
         $error = "Database error: " . $e->getMessage();
     }
@@ -33,7 +26,7 @@ try {
     $workflows_stmt->execute([$user_id]);
     $workflows = $workflows_stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $logo_map = ['woocommerce' => 'woocommerce.png', 'facebook' => 'facebook.png', 'sendit.ma' => 'shipping.png', 'cost' => 'cost.png'];
+    $logo_map = ['woocommerce' => 'woocommerce.png', 'facebook' => 'facebook.png', 'tiktok' => 'tiktok.png', 'shipping' => 'shipping.png', 'cost' => 'cost.png'];
     $base_logo_path = BASE_URL . '/assets/images/logos/';
 
     foreach ($workflows as $workflow) {
@@ -43,13 +36,24 @@ try {
         $stores_stmt->execute([$workflow['id']]);
         if($stores_stmt->fetch()) $nodes[] = $base_logo_path . $logo_map['woocommerce'];
         
-        $ads_stmt = $pdo->prepare("SELECT 1 FROM ad_accounts WHERE workflow_id = ? LIMIT 1");
+        $ads_stmt = $pdo->prepare("SELECT DISTINCT platform FROM ad_accounts WHERE workflow_id = ?");
         $ads_stmt->execute([$workflow['id']]);
-        if($ads_stmt->fetch()) $nodes[] = $base_logo_path . $logo_map['facebook'];
+        $platforms = $ads_stmt->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($platforms as $platform) {
+            if(isset($logo_map[$platform])) {
+                $nodes[] = $base_logo_path . $logo_map[$platform];
+            }
+        }
 
-        // Add other checks here for shipping, costs etc.
+        $shipping_stmt = $pdo->prepare("SELECT 1 FROM shipping_carriers WHERE workflow_id = ? LIMIT 1");
+        $shipping_stmt->execute([$workflow['id']]);
+        if($shipping_stmt->fetch()) $nodes[] = $base_logo_path . $logo_map['shipping'];
+        
+        $costs_stmt = $pdo->prepare("SELECT 1 FROM costs WHERE workflow_id = ? LIMIT 1");
+        $costs_stmt->execute([$workflow['id']]);
+        if($costs_stmt->fetch()) $nodes[] = $base_logo_path . $logo_map['cost'];
 
-        $workflows_data[] = ['id' => $workflow['id'], 'name' => $workflow['name'], 'nodes' => $nodes];
+        $workflows_data[] = ['id' => $workflow['id'], 'name' => $workflow['name'], 'nodes' => array_unique($nodes)];
     }
 } catch (PDOException $e) {
     $error = "Error fetching workflow data: " . $e->getMessage();
@@ -78,7 +82,7 @@ try {
                     <h2><?php echo htmlspecialchars($workflow['name']); ?></h2>
                     <div class="workflow-actions">
                         <a href="setup.php?workflow_id=<?php echo $workflow['id']; ?>" class="btn-edit">Manage</a>
-                        <form action="workflows.php" method="POST" onsubmit="return confirm('Delete this workflow?');">
+                        <form action="workflows.php" method="POST" onsubmit="return confirm('Are you sure you want to delete this workflow and all of its data? This cannot be undone.');">
                             <input type="hidden" name="workflow_id" value="<?php echo $workflow['id']; ?>">
                             <button type="submit" name="delete_workflow" class="btn btn-delete">Delete</button>
                         </form>
@@ -102,4 +106,3 @@ try {
 </div>
 
 <?php require_once 'includes/footer.php'; ?>
-

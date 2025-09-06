@@ -31,31 +31,30 @@ try {
     $user_id = $_SESSION['user']['id'];
 
     // Main logic to handle the request
-    if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action'])) {
-        $workflow_id = $_GET['workflow_id'] ?? null;
+    $action = $_GET['action'] ?? null;
+    $workflow_id = $_GET['workflow_id'] ?? null;
+
+    if ($_SERVER['REQUEST_METHOD'] === 'GET' && $action === 'list_sheets') {
         if (!$workflow_id) {
             throw new InvalidArgumentException('Workflow ID is required.');
         }
 
-        // ACTION: List all of the user's spreadsheets
-        if ($_GET['action'] === 'list_sheets') {
-            $client = get_google_client_for_user($pdo, $user_id, $workflow_id);
-            $driveService = new Google\Service\Drive($client);
-            
-            $optParams = [
-                'q' => "mimeType='application/vnd.google-apps.spreadsheet'",
-                'fields' => 'files(id, name)',
-                'pageSize' => 100
-            ];
-            $results = $driveService->files->listFiles($optParams);
-            
-            $sheets = [];
-            foreach ($results->getFiles() as $file) {
-                $sheets[] = ['id' => $file->getId(), 'name' => $file->getName()];
-            }
-            echo json_encode(['success' => true, 'sheets' => $sheets]);
-            exit();
+        $client = get_google_client_for_user($pdo, $user_id, $workflow_id);
+        $driveService = new Google\Service\Drive($client);
+        
+        $optParams = [
+            'q' => "mimeType='application/vnd.google-apps.spreadsheet'",
+            'fields' => 'files(id, name)',
+            'pageSize' => 200 // Increased limit
+        ];
+        $results = $driveService->files->listFiles($optParams);
+        
+        $sheets = [];
+        foreach ($results->getFiles() as $file) {
+            $sheets[] = ['id' => $file->getId(), 'name' => $file->getName()];
         }
+        echo json_encode(['success' => true, 'sheets' => $sheets]);
+        exit();
     }
     
     throw new BadMethodCallException('Invalid action.');
@@ -65,7 +64,7 @@ try {
     error_log("API Error in google-sheet-handler.php: " . $e->getMessage());
     echo json_encode([
         'success' => false,
-        'message' => 'An error occurred: ' . $e->getMessage()
+        'message' => 'A server error occurred: ' . $e->getMessage()
     ]);
     exit();
 }

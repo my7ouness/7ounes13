@@ -12,6 +12,9 @@ if (!$workflow_id) {
 $user_id = $_SESSION['user']['id'];
 $message = '';
 $error = '';
+if (isset($_GET['status']) && $_GET['status'] === 'google_success') {
+    $message = "Google Account connected successfully! Please select a sheet and tab below.";
+}
 
 try {
     $wf_stmt = $pdo->prepare("SELECT name FROM workflows WHERE id = ? AND user_id = ?");
@@ -32,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['delete_connection'])) {
         $connection_id = $_POST['connection_id'];
         $connection_type = $_POST['connection_type'];
-        $table_map = ['store' => 'stores', 'ad_account' => 'ad_accounts', 'shipping' => 'shipping_carriers', 'cost' => 'costs'];
+        $table_map = ['store' => 'stores', 'ad_account' => 'ad_accounts', 'shipping' => 'shipping_carriers', 'cost' => 'costs', 'google_sheet' => 'google_sheets_connections'];
 
         if (isset($table_map[$connection_type])) {
             $table = $table_map[$connection_type];
@@ -46,6 +49,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
+    // --- Handle Google Sheet SELECTION Save ---
+    if (isset($_POST['save_google_sheet_selection'])) {
+        $sheet_id = $_POST['sheet_id'] ?? '';
+        $tab_name = $_POST['tab_name'] ?? '';
+        $conn_id = $_POST['connection_id'] ?? '';
+
+        if (!empty($sheet_id) && !empty($tab_name) && !empty($conn_id)) {
+            try {
+                $stmt = $pdo->prepare(
+                    "UPDATE google_sheets_connections SET selected_sheet_id = ?, selected_sheet_tab_name = ? WHERE id = ? AND user_id = ?"
+                );
+                $stmt->execute([$sheet_id, $tab_name, $conn_id, $user_id]);
+                $message = "Google Sheet selection saved successfully!";
+            } catch(PDOException $e) {
+                $error = "Database Error: " . $e->getMessage();
+            }
+        } else {
+            $error = "Please select a sheet and enter a tab name.";
+        }
+    }
+
     // --- Handle WooCommerce Store Save ---
     if (isset($_POST['save_woocommerce_store'])) {
         $store_name = trim($_POST['store_name'] ?? '');
@@ -57,13 +81,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
              $error = "All WooCommerce fields are required.";
         } else {
             try {
-                // --- THIS IS THE FIX ---
-                // Removed the non-existent 'status' column from the query
                 $stmt = $pdo->prepare(
                     "INSERT INTO stores (user_id, workflow_id, name, platform, api_url, api_key, api_secret) VALUES (?, ?, ?, ?, ?, ?, ?)"
                 );
                 $stmt->execute([$user_id, $workflow_id, $store_name, 'woocommerce', $store_url, $consumer_key, $consumer_secret]);
-                // --- END OF FIX ---
                 $message = "WooCommerce store connected successfully!";
             } catch (PDOException $e) {
                 $error = "Database Error: " . $e->getMessage();
@@ -131,7 +152,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // --- Step 3: Fetch ALL data for this workflow to display ---
-$logo_map = ['woocommerce' => 'woocommerce.png', 'facebook' => 'facebook.png', 'shipping' => 'shipping.png', 'cost' => 'cost.png'];
+$logo_map = ['woocommerce' => 'woocommerce.png', 'facebook' => 'facebook.png', 'google_sheet' => 'google-sheets.png', 'shipping' => 'shipping.png', 'cost' => 'cost.png'];
 $base_logo_path = BASE_URL . '/assets/images/logos/';
 $nodes = [];
 
@@ -142,6 +163,11 @@ if ($stores_stmt->rowCount() > 0) $nodes[] = $base_logo_path . $logo_map['woocom
 $ad_accounts_stmt = $pdo->prepare("SELECT id, platform, account_name FROM ad_accounts WHERE user_id = ? AND workflow_id = ?");
 $ad_accounts_stmt->execute([$user_id, $workflow_id]);
 if ($ad_accounts_stmt->rowCount() > 0) $nodes[] = $base_logo_path . $logo_map['facebook'];
+
+$gs_stmt = $pdo->prepare("SELECT * FROM google_sheets_connections WHERE user_id = ? AND workflow_id = ?");
+$gs_stmt->execute([$user_id, $workflow_id]);
+$google_sheet_connection = $gs_stmt->fetch(PDO::FETCH_ASSOC);
+if ($google_sheet_connection) $nodes[] = $base_logo_path . $logo_map['google_sheet'];
 
 $shipping_stmt = $pdo->prepare("SELECT id, carrier_name FROM shipping_carriers WHERE user_id = ? AND workflow_id = ?");
 $shipping_stmt->execute([$user_id, $workflow_id]);
@@ -159,8 +185,9 @@ $nodes = array_unique($nodes);
     <a href="workflows.php" class="btn btn-secondary">Back to Workflows</a>
 </div>
 
-<?php if ($message): ?> <div class="alert success"><?php echo htmlspecialchars($message); ?></div> <?php endif; ?>
-<?php if ($error): ?> <div class="alert error"><?php echo htmlspecialchars($error); ?></div> <?php endif; ?>
+<?php if ($message): ?> <div class="alert success" id="alert-message"><?php echo htmlspecialchars($message); ?></div> <?php endif; ?>
+<?php if ($error): ?> <div class="alert error" id="alert-message"><?php echo htmlspecialchars($error); ?></div> <?php endif; ?>
+
 
 <div class="visual-builder-canvas">
     <div class="workflow-timeline">
@@ -209,6 +236,44 @@ $nodes = array_unique($nodes);
         </ul>
     </div>
     <?php endif; ?>
+    
+    <div class="connection-card">
+        <div class="connection-card-header"><img src="<?php echo $base_logo_path; ?>google-sheets.png" class="header-icon" alt="Google Sheets"><h3>Google Sheets</h3></div>
+        <div class="connection-card-body" style="padding: 15px;">
+            <?php if (!$google_sheet_connection): ?>
+                <p>Connect your Google Account to select a sheet for order and cost data.</p>
+                <a href="<?php echo BASE_URL; ?>/auth/google-auth-redirect.php?workflow_id=<?php echo $workflow_id; ?>" class="btn btn-primary">Connect with Google</a>
+            <?php else: ?>
+                <p><strong>Status:</strong> Connected! Now select your sheet.</p>
+                <form method="POST" style="margin-top: 10px;">
+                    <input type="hidden" name="connection_id" value="<?php echo $google_sheet_connection['id']; ?>">
+                    <div class="form-group">
+                        <label for="sheet_id">Spreadsheet</label>
+                        <select id="sheet_id" name="sheet_id" class="google-sheet-selector">
+                            <option value="">-- Loading your sheets --</option>
+                             <?php if (!empty($google_sheet_connection['selected_sheet_id'])): ?>
+                                <option value="<?php echo htmlspecialchars($google_sheet_connection['selected_sheet_id']); ?>" selected>
+                                    (Currently Selected) Loading Name...
+                                </option>
+                            <?php endif; ?>
+                        </select>
+                    </div>
+                     <div class="form-group">
+                        <label for="tab_name">Tab Name</label>
+                        <input type="text" id="tab_name" name="tab_name" placeholder="e.g., Orders" value="<?php echo htmlspecialchars($google_sheet_connection['selected_sheet_tab_name'] ?? 'Orders'); ?>" required>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" name="save_google_sheet_selection" class="btn btn-primary">Save Selection</button>
+                    </div>
+                </form>
+                <form method="POST" onsubmit="return confirm('Are you sure you want to delete this connection?');" style="margin-top: 15px; text-align: right;">
+                    <input type="hidden" name="connection_id" value="<?php echo $google_sheet_connection['id']; ?>">
+                    <input type="hidden" name="connection_type" value="google_sheet">
+                    <button type="submit" name="delete_connection" class="btn btn-delete">Delete</button>
+                </form>
+            <?php endif; ?>
+        </div>
+    </div>
 
     <?php $shipping_list = $shipping_stmt->fetchAll(PDO::FETCH_ASSOC); if (!empty($shipping_list)): ?>
     <div class="connection-card">
@@ -246,116 +311,16 @@ $nodes = array_unique($nodes);
     <div class="modal-body"><div class="choice-grid">
         <div class="choice-card" data-next-template="template-select-store"><img src="<?php echo $base_logo_path; ?>woocommerce.png" alt="Store"><h3>Store</h3></div>
         <div class="choice-card" data-next-template="template-select-ad-platform"><img src="<?php echo $base_logo_path; ?>facebook.png" alt="Ad Platform"><h3>Ad Platform</h3></div>
+        
+        <?php if (!$google_sheet_connection): ?>
+        <a href="<?php echo BASE_URL; ?>/auth/google-auth-redirect.php?workflow_id=<?php echo $workflow_id; ?>" class="choice-card">
+            <img src="<?php echo $base_logo_path; ?>google-sheets.png" alt="Google Sheet"><h3>Google Sheets</h3>
+        </a>
+        <?php endif; ?>
+
         <div class="choice-card" data-next-template="template-select-shipping"><img src="<?php echo $base_logo_path; ?>shipping.png" alt="Shipping"><h3>Shipping Company</h3></div>
         <div class="choice-card" data-next-template="template-form-fixed-cost"><img src="<?php echo $base_logo_path; ?>cost.png" alt="Cost"><h3>Fixed Cost</h3></div>
     </div></div>
-</template>
-
-<template id="template-select-store">
-     <div class="modal-header"><h2>Which store platform?</h2><button class="close-button">&times;</button></div>
-    <div class="modal-body"><div class="choice-grid">
-        <div class="choice-card" data-next-template="template-form-woocommerce"><img src="<?php echo $base_logo_path; ?>woocommerce.png" alt="WooCommerce"><h3>WooCommerce</h3></div>
-        <div class="choice-card" onclick="alert('Shopify integration is coming soon!')"><img src="https://cdn.shopify.com/shopify-marketing_assets/static/shopify-favicon.png" alt="Shopify" style="border-radius:5px;"><h3>Shopify</h3></div>
-    </div></div>
-</template>
-
-<template id="template-select-ad-platform">
-     <div class="modal-header"><h2>Which ad platform?</h2><button class="close-button">&times;</button></div>
-    <div class="modal-body"><div class="choice-grid">
-        <div class="choice-card" data-next-template="template-form-facebook"><img src="<?php echo $base_logo_path; ?>facebook.png" alt="Facebook"><h3>Facebook Ads</h3></div>
-    </div></div>
-</template>
-
-<template id="template-select-shipping">
-     <div class="modal-header"><h2>Which shipping company?</h2><button class="close-button">&times;</button></div>
-    <div class="modal-body"><div class="choice-grid">
-        <div class="choice-card" data-next-template="template-form-shipping-sendit"><img src="<?php echo $base_logo_path; ?>shipping.png" alt="Sendit"><h3>Sendit.ma</h3></div>
-        <div class="choice-card" data-next-template="template-form-shipping-other"><img src="<?php echo $base_logo_path; ?>shipping.png" alt="Other shipping"><h3>Other</h3></div>
-    </div></div>
-</template>
-
-<template id="template-form-woocommerce">
-    <div class="modal-header"><h2>Connect WooCommerce</h2><button class="close-button">&times;</button></div>
-    <div class="modal-body">
-        <form method="POST">
-            <div class="form-group">
-                <label for="store_name">Store Nickname</label>
-                <input type="text" id="store_name" name="store_name" placeholder="e.g., My Fashion Store" required>
-            </div>
-            <div class="form-group">
-                <label for="store_url">Store URL</label>
-                <input type="url" id="store_url" name="store_url" placeholder="https://yourstore.com" required>
-            </div>
-            <div class="form-group">
-                <label for="consumer_key">Consumer Key</label>
-                <input type="text" id="consumer_key" name="consumer_key" required>
-            </div>
-            <div class="form-group">
-                <label for="consumer_secret">Consumer Secret</label>
-                <input type="password" id="consumer_secret" name="consumer_secret" required>
-            </div>
-            <button type="submit" name="save_woocommerce_store" class="btn btn-primary btn-full-width">Save Connection</button>
-        </form>
-    </div>
-</template>
-
-<template id="template-form-facebook">
-    <div class="modal-header"><h2>Connect Facebook Ads</h2><button class="close-button">&times;</button></div>
-    <div class="modal-body">
-        <form method="POST">
-            <div id="fb-step-1">
-                <div class="form-group"><label for="fb_account_name">Account Nickname</label><input type="text" id="fb_account_name" name="fb_account_name" required placeholder="e.g., My Primary Ad Account"></div>
-                <div class="form-group"><label for="fb_account_id">Ad Account ID</label><input type="text" id="fb_account_id" name="fb_account_id" required placeholder="e.g., act_123456789"></div>
-                <div class="form-group"><label for="fb_access_token">Access Token</label><input type="password" id="fb_access_token" name="fb_access_token" required></div>
-                <div id="connection-test-results" style="display: none; margin-bottom: 15px; padding: 10px; border-radius: 5px;"></div>
-                <div class="form-actions" style="display: flex; gap: 10px;">
-                    <button type="button" id="test-connection-btn" class="btn btn-secondary" style="flex: 1;">Test</button>
-                    <button type="button" id="fetch-campaigns-btn" class="btn btn-primary" style="flex: 2;">Fetch Campaigns</button>
-                </div>
-            </div>
-            <div id="fb-step-2" style="display: none;">
-                <h4>Select Campaigns to Track</h4><p>Select the campaigns you want to track.</p>
-                <div id="campaign-list-container" style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 10px; border-radius: 5px; margin-bottom: 20px;"></div>
-                <button type="submit" name="save_ad_account" class="btn btn-primary btn-full-width">Save Connection</button>
-            </div>
-        </form>
-    </div>
-</template>
-
-<template id="template-form-shipping-sendit">
-    <div class="modal-header"><h2>Connect Sendit.ma</h2><button class="close-button">&times;</button></div>
-    <div class="modal-body">
-        <form method="POST">
-            <p style="text-align: center; margin-bottom: 20px;">Direct API integration with Sendit is coming soon. For now, please add it manually.</p>
-            <input type="hidden" name="shipping_carrier_name" value="Sendit.ma">
-            <button type="submit" name="save_shipping_carrier" class="btn btn-primary btn-full-width">Add Sendit.ma</button>
-        </form>
-    </div>
-</template>
-
-<template id="template-form-shipping-other">
-    <div class="modal-header"><h2>Add Other Shipping Company</h2><button class="close-button">&times;</button></div>
-    <div class="modal-body">
-        <form method="POST">
-            <div class="form-group">
-                <label for="shipping_carrier_name">Company Name</label>
-                <input type="text" id="shipping_carrier_name" name="shipping_carrier_name" required placeholder="e.g., Cathedis, Tawsilix">
-            </div>
-            <button type="submit" name="save_shipping_carrier" class="btn btn-primary btn-full-width">Save Carrier</button>
-        </form>
-    </div>
-</template>
-
-<template id="template-form-fixed-cost">
-     <div class="modal-header"><h2>Add a Fixed Cost</h2><button class="close-button">&times;</button></div>
-    <div class="modal-body">
-        <form method="POST">
-            <div class="form-group"><label for="cost_name">Cost Name</label><input type="text" id="cost_name" name="cost_name" required placeholder="e.g., Office Rent, Employee Salary"></div>
-            <div class="form-group"><label for="cost_amount">Amount (MAD)</label><input type="number" step="0.01" id="cost_amount" name="cost_amount" required></div>
-            <div class="form-group"><label for="cost_period">Period</label><select id="cost_period" name="cost_period"><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></div>
-            <button type="submit" name="save_fixed_cost" class="btn btn-primary btn-full-width">Save Cost</button>
-        </form>
-    </div>
 </template>
 
 <?php require_once 'includes/footer.php'; ?>

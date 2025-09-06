@@ -1,9 +1,49 @@
 document.addEventListener('DOMContentLoaded', function() {
     const modalOverlay = document.getElementById('modal-overlay');
     const mainModal = document.getElementById('main-modal');
-    const addConnectionBtn = document.querySelector('.add-node-btn'); // Find button by class
+    const addConnectionBtn = document.querySelector('.add-node-btn');
 
     if (!modalOverlay || !mainModal) return;
+
+    // --- Function to load Google Sheets into the dropdown ---
+    async function loadGoogleSheets() {
+        const selector = document.querySelector('.google-sheet-selector');
+        if (!selector) return;
+
+        // Get workflow_id from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const workflowId = urlParams.get('workflow_id');
+        if (!workflowId) return;
+
+        try {
+            const response = await fetch(`${BASE_URL}/api/google-sheet-handler.php?action=list_sheets&workflow_id=${workflowId}`);
+            const result = await response.json();
+
+            if (result.success) {
+                const currentlySelected = selector.querySelector('option[selected]');
+                selector.innerHTML = '<option value="">-- Select a Spreadsheet --</option>';
+                
+                result.sheets.forEach(sheet => {
+                    const isSelected = currentlySelected && currentlySelected.value === sheet.id;
+                    selector.innerHTML += `<option value="${sheet.id}" ${isSelected ? 'selected' : ''}>${sheet.name}</option>`;
+                });
+
+                // If a sheet was previously selected but its name wasn't loaded, this part is a fallback.
+                if (currentlySelected && !result.sheets.some(s => s.id === currentlySelected.value)) {
+                     selector.innerHTML += `<option value="${currentlySelected.value}" selected>${currentlySelected.textContent}</option>`;
+                }
+
+            } else {
+                throw new Error(result.message);
+            }
+        } catch (error) {
+            selector.innerHTML = `<option>Error loading sheets: ${error.message}</option>`;
+        }
+    }
+
+    // Call the function to load sheets if the selector exists on the page
+    loadGoogleSheets();
+
 
     function openModal(templateId) {
         const template = document.getElementById(templateId);
@@ -21,15 +61,13 @@ document.addEventListener('DOMContentLoaded', function() {
         modalOverlay.style.display = 'none';
         mainModal.innerHTML = '';
     }
-    
-    // --- DIRECT EVENT LISTENER USING THE CLASS ---
+
     if (addConnectionBtn) {
         addConnectionBtn.addEventListener('click', function() {
             openModal('template-select-type');
         });
     }
 
-    // Use event delegation for elements INSIDE the modal
     document.body.addEventListener('click', function(event) {
         const closeButton = event.target.closest('.close-button');
         const choiceCard = event.target.closest('.choice-card');

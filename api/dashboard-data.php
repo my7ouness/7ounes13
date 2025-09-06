@@ -1,31 +1,24 @@
 <?php
-// Set the content type to JSON at the very beginning
 header('Content-Type: application/json');
-
-// It's crucial to start the session before any other files are included
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Now include the necessary files
 require_once '../includes/db.php';
 require_once '../includes/functions.php';
 
-// --- A safer way to handle login for an API ---
 if (!isset($_SESSION['user']['id'])) {
-    http_response_code(401); // Unauthorized
+    http_response_code(401);
     echo json_encode(['error' => 'User not authenticated.']);
     exit();
 }
 $user_id = $_SESSION['user']['id'];
 
-// --- Step 1: Handle Initial Request to Get Workflows ---
 if (isset($_GET['action']) && $_GET['action'] === 'get_workflows') {
     try {
         $stmt = $pdo->prepare("SELECT id, name FROM workflows WHERE user_id = ? ORDER BY name");
         $stmt->execute([$user_id]);
-        $workflows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        echo json_encode($workflows);
+        echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
         exit();
     } catch (PDOException $e) {
         http_response_code(500);
@@ -34,7 +27,6 @@ if (isset($_GET['action']) && $_GET['action'] === 'get_workflows') {
     }
 }
 
-// --- Step 2: Main Data Fetching Logic ---
 try {
     $workflow_id = $_GET['workflow_id'] ?? null;
     $start_date = $_GET['start'] ?? date('Y-m-d');
@@ -43,182 +35,171 @@ try {
     if (!$workflow_id) {
         throw new Exception("Workflow ID is required.");
     }
-    
-    // Get the USD to MAD conversion rate for this workflow
+
     $rate_stmt = $pdo->prepare("SELECT usd_to_mad_rate FROM workflows WHERE id = ? AND user_id = ?");
     $rate_stmt->execute([$workflow_id, $user_id]);
-    $usd_to_mad_rate = floatval($rate_stmt->fetchColumn());
-    if (!$usd_to_mad_rate || $usd_to_mad_rate <= 0) {
-        $usd_to_mad_rate = 10.0; // Fallback to a default rate
-    }
+    $usd_to_mad_rate = (float)($rate_stmt->fetchColumn() ?: 10.0);
 
     $params = [$user_id, $workflow_id, $start_date, $end_date];
+    $base_params = [$user_id, $workflow_id];
 
-    // --- Order Metrics ---
+    // --- 1. Order Metrics ---
     $orders_sql = "
-        SELECT 
+        SELECT
             COALESCE(SUM(CASE WHEN shipping_status = 'delivered' THEN total_revenue ELSE 0 END), 0) as delivered_revenue,
             COALESCE(SUM(CASE WHEN shipping_status = 'delivered' THEN total_cogs ELSE 0 END), 0) as delivered_cogs,
-            COALESCE(SUM(total_revenue), 0) as gross_sales,
-            COUNT(*) as total_orders,
-            COALESCE(SUM(CASE WHEN shipping_status IN ('shipped', 'delivered', 'returned') THEN 1 ELSE 0 END), 0) as shipped_orders,
-            COALESCE(SUM(CASE WHEN shipping_status = 'delivered' THEN 1 ELSE 0 END), 0) as delivered_orders,
-            COALESCE(SUM(CASE WHEN shipping_status = 'returned' THEN 1 ELSE 0 END), 0) as returned_orders,
             COALESCE(SUM(CASE WHEN shipping_status = 'shipped' THEN total_revenue - total_cogs ELSE 0 END), 0) as pending_profit,
+            COALESCE(SUM(total_revenue), 0) as gross_sales,
+            COUNT(DISTINCT CASE WHEN shipping_status = 'delivered' THEN platform_order_id END) as delivered_orders,
+            COUNT(DISTINCT CASE WHEN shipping_status = 'shipped' THEN platform_order_id END) as shipped_orders_count,
+            COUNT(DISTINCT CASE WHEN shipping_status = 'returned' THEN platform_order_id END) as returned_orders_count,
+            COUNT(id) as total_orders,
             COALESCE(SUM(CASE WHEN shipping_status = 'returned' THEN total_revenue ELSE 0 END), 0) as lost_profit_rto
-        FROM orders 
+        FROM orders
         WHERE user_id = ? AND workflow_id = ? AND DATE(order_date) BETWEEN ? AND ?
     ";
     $stmt = $pdo->prepare($orders_sql);
     $stmt->execute($params);
     $order_metrics = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    // --- Ad Spend Metrics ---
-    $ad_spend_sql = "
-        SELECT 
-            aa.platform,
-            c.name as campaign_name,
-            das.campaign_id,
-            SUM(das.spend) as total_spend_usd,
-            SUM(das.impressions) as total_impressions
-        FROM daily_ad_spend das
-        JOIN ad_accounts aa ON das.ad_account_id = aa.id
-        LEFT JOIN campaigns c ON das.campaign_id = c.campaign_id AND aa.workflow_id = c.workflow_id
-        WHERE das.user_id = ? AND aa.workflow_id = ? AND das.spend_date BETWEEN ? AND ?
-        GROUP BY aa.platform, c.name, das.campaign_id
-    ";
+    // --- 2. Ad Spend ---
+    $ad_spend_sql = "SELECT SUM(spend) as total_spend_usd FROM daily_ad_spend das JOIN ad_accounts aa ON das.ad_account_id = aa.id WHERE das.user_id = ? AND aa.workflow_id = ? AND das.spend_date BETWEEN ? AND ?";
     $stmt = $pdo->prepare($ad_spend_sql);
     $stmt->execute($params);
-    $ad_spend_rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $total_ad_spend_usd = (float)$stmt->fetchColumn();
+    $total_ad_spend = $total_ad_spend_usd * $usd_to_mad_rate;
 
-    $total_ad_spend = 0;
-    $platform_breakdown_data = [];
-    $campaign_breakdown_data = [];
-
-    foreach($ad_spend_rows as $row) {
-        $spend_in_mad = $row['total_spend_usd'] * $usd_to_mad_rate;
-        $total_ad_spend += $spend_in_mad;
-        $cpm = 0;
-        if (!empty($row['total_impressions'])) {
-            $cpm = ($spend_in_mad / $row['total_impressions']) * 1000;
-        }
-        if (!isset($platform_breakdown_data[$row['platform']])) {
-            $platform_breakdown_data[$row['platform']] = ['spend' => 0, 'impressions' => 0];
-        }
-        $platform_breakdown_data[$row['platform']]['spend'] += $spend_in_mad;
-        $platform_breakdown_data[$row['platform']]['impressions'] += $row['total_impressions'];
-        $display_name = $row['campaign_name'] ?? ('Campaign ID: ' . $row['campaign_id']);
-        $campaign_breakdown_data[] = [
-            'name' => $display_name,
-            'spend' => number_format($spend_in_mad, 2),
-            'cpm' => number_format($cpm, 2)
-        ];
-    }
-    foreach($platform_breakdown_data as &$platform) {
-        $platform_cpm = 0;
-        if (!empty($platform['impressions'])) {
-            $platform_cpm = ($platform['spend'] / $platform['impressions']) * 1000;
-        }
-        $platform['spend'] = number_format($platform['spend'], 2);
-        $platform['cpm'] = number_format($platform_cpm, 2);
-        unset($platform['impressions']);
-    }
-
-    // --- Product Profitability ---
-    $product_profit_sql = "
-        SELECT
-            name,
-            SUM(quantity) as units_sold,
-            SUM(total) as revenue,
-            SUM(cogs) as total_cogs
-        FROM order_line_items
-        WHERE user_id = ? AND workflow_id = ? AND DATE(order_date) BETWEEN ? AND ?
-        GROUP BY name
-        ORDER BY revenue DESC
-    ";
-    $stmt = $pdo->prepare($product_profit_sql);
-    $stmt->execute($params);
-    $product_rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    $product_profitability_data = [];
-    foreach($product_rows as $row) {
-        $revenue_share = ($order_metrics['gross_sales'] > 0) ? ($row['revenue'] / $order_metrics['gross_sales']) : 0;
-        $proportional_ad_spend = $total_ad_spend * $revenue_share;
-        $net_profit = $row['revenue'] - $row['total_cogs'] - $proportional_ad_spend;
-
-        $product_profitability_data[] = [
-            'name' => $row['name'],
-            'units_sold' => $row['units_sold'],
-            'revenue' => number_format($row['revenue'], 2),
-            'cogs' => number_format($row['total_cogs'], 2),
-            'ad_spend' => number_format($proportional_ad_spend, 2),
-            'net_profit' => number_format($net_profit, 2)
-        ];
-    }
-    
-    // --- Fixed Costs ---
-    $costs_sql = "SELECT amount, recurrence FROM costs WHERE user_id = ? AND workflow_id = ?";
+    // --- 3. Fixed Costs ---
+    $costs_sql = "SELECT amount, cost_type FROM costs WHERE user_id = ? AND workflow_id = ?";
     $stmt = $pdo->prepare($costs_sql);
-    $stmt->execute([$user_id, $workflow_id]);
-    $fixed_costs = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
+    $stmt->execute($base_params);
+    $costs_rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $total_fixed_costs = 0;
     $days_in_range = (new DateTime($end_date))->diff(new DateTime($start_date))->days + 1;
-    foreach ($fixed_costs as $cost) {
-        if ($cost['recurrence'] === 'monthly') {
-            $total_fixed_costs += ($cost['amount'] / 30) * $days_in_range;
-        } elseif ($cost['recurrence'] === 'yearly') {
-            $total_fixed_costs += ($cost['amount'] / 365) * $days_in_range;
-        }
+    foreach ($costs_rows as $cost) {
+        if ($cost['cost_type'] === 'monthly') $total_fixed_costs += ($cost['amount'] / 30) * $days_in_range;
+        elseif ($cost['cost_type'] === 'yearly') $total_fixed_costs += ($cost['amount'] / 365) * $days_in_range;
+        elseif ($cost['cost_type'] === 'per_order') $total_fixed_costs += $cost['amount'] * $order_metrics['delivered_orders'];
     }
 
-    // --- Final KPI Calculations and Recent Orders ---
+    // --- 4. High-Level KPI Calculations ---
     $total_costs = $order_metrics['delivered_cogs'] + $total_ad_spend + $total_fixed_costs;
     $net_profit = $order_metrics['delivered_revenue'] - $total_costs;
-    $delivery_rate = ($order_metrics['shipped_orders'] > 0) ? ($order_metrics['delivered_orders'] / $order_metrics['shipped_orders']) * 100 : 0;
-    $return_rate = ($order_metrics['shipped_orders'] > 0) ? ($order_metrics['returned_orders'] / $order_metrics['shipped_orders']) * 100 : 0;
-    $roas = ($total_ad_spend > 0) ? $order_metrics['delivered_revenue'] / $total_ad_spend : 0;
-    $cost_per_delivered = ($order_metrics['delivered_orders'] > 0) ? $total_costs / $order_metrics['delivered_orders'] : 0;
+    $roi = $total_costs > 0 ? ($net_profit / $total_costs) * 100 : 0;
+    $cost_per_delivered = $order_metrics['delivered_orders'] > 0 ? $total_costs / $order_metrics['delivered_orders'] : 0;
+    $breakeven_point = $cost_per_delivered > 0 ? ceil($total_fixed_costs / $cost_per_delivered) : 0;
+    $delivery_rate = $order_metrics['shipped_orders_count'] > 0 ? ($order_metrics['delivered_orders'] / $order_metrics['shipped_orders_count']) * 100 : 0;
+    $return_rate = $order_metrics['shipped_orders_count'] > 0 ? ($order_metrics['returned_orders_count'] / $order_metrics['shipped_orders_count']) * 100 : 0;
+    $confirmation_rate = $order_metrics['total_orders'] > 0 ? (($order_metrics['shipped_orders_count'] + $order_metrics['delivered_orders'] + $order_metrics['returned_orders_count']) / $order_metrics['total_orders']) * 100 : 0;
 
+
+    // --- 5. Product-Level Profitability ---
+    $product_sql = "
+        SELECT
+            oli.name, SUM(oli.quantity) as units_sold, SUM(oli.total) as revenue, SUM(oli.cogs) as cogs,
+            COUNT(DISTINCT CASE WHEN o.shipping_status = 'delivered' THEN o.id END) as delivered_count,
+            COUNT(DISTINCT CASE WHEN o.shipping_status = 'shipped' THEN o.id END) as shipped_count
+        FROM order_line_items oli
+        JOIN orders o ON oli.order_id = o.id
+        WHERE oli.user_id = ? AND oli.workflow_id = ? AND DATE(oli.order_date) BETWEEN ? AND ?
+        GROUP BY oli.name ORDER BY revenue DESC
+    ";
+    $stmt = $pdo->prepare($product_sql);
+    $stmt->execute($params);
+    $product_rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $product_profitability = [];
+    $gross_sales_total = $order_metrics['gross_sales'];
+
+    foreach($product_rows as $row) {
+        $revenue_share = $gross_sales_total > 0 ? $row['revenue'] / $gross_sales_total : 0;
+        $p_ad_spend = $total_ad_spend * $revenue_share;
+        $p_fixed_costs = $total_fixed_costs * $revenue_share;
+        $p_net_profit = $row['revenue'] - $row['cogs'] - $p_ad_spend - $p_fixed_costs;
+        $p_delivery_rate = $row['shipped_count'] > 0 ? ($row['delivered_count'] / $row['shipped_count']) * 100 : 0;
+
+        $product_profitability[] = [
+            'name' => $row['name'],
+            'units_sold' => (int)$row['units_sold'],
+            'revenue' => number_format($row['revenue'], 2),
+            'ad_spend' => number_format($p_ad_spend, 2),
+            'fixed_costs' => number_format($p_fixed_costs, 2),
+            'cogs' => number_format($row['cogs'], 2),
+            'net_profit' => number_format($p_net_profit, 2),
+            'delivery_rate' => number_format($p_delivery_rate, 2) . '%'
+        ];
+    }
+    
+    // --- 6. Campaign Performance ---
+    $campaign_sql = "
+        SELECT c.name as campaign_name, aa.platform, SUM(das.spend) as spend, SUM(das.impressions) as impressions
+        FROM daily_ad_spend das
+        JOIN ad_accounts aa ON das.ad_account_id = aa.id
+        JOIN campaigns c ON das.campaign_id = c.campaign_id AND aa.workflow_id = c.workflow_id
+        WHERE das.user_id = ? AND aa.workflow_id = ? AND das.spend_date BETWEEN ? AND ?
+        GROUP BY c.name, aa.platform ORDER BY spend DESC
+    ";
+    $stmt = $pdo->prepare($campaign_sql);
+    $stmt->execute($params);
+    $campaign_rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $campaign_performance = [];
+    foreach($campaign_rows as $row){
+        $spend_mad = $row['spend'] * $usd_to_mad_rate;
+        $campaign_performance[] = [
+            'name' => $row['campaign_name'],
+            'platform' => ucfirst($row['platform']),
+            'spend' => number_format($spend_mad, 2),
+            'orders' => 'N/A',
+            'cpo' => 'N/A'
+        ];
+    }
+
+    // --- 7. Recent Orders ---
     $recent_orders_sql = "
-        SELECT o.platform_order_id, o.order_date, o.total_revenue, o.shipping_status as status, s.platform 
+        SELECT o.platform_order_id, s.name as store_name, o.shipping_status as status
         FROM orders o
         JOIN stores s ON o.store_id = s.id
         WHERE o.user_id = ? AND o.workflow_id = ?
-        ORDER BY o.order_date DESC 
-        LIMIT 10
+        ORDER BY o.order_date DESC LIMIT 5
     ";
     $stmt = $pdo->prepare($recent_orders_sql);
-    $stmt->execute([$user_id, $workflow_id]);
-    $recent_orders = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    foreach($recent_orders as &$order) {
-        $order['order_id'] = $order['platform_order_id'];
-        $order['date'] = (new DateTime($order['order_date']))->format('Y-m-d');
-        $order['revenue'] = number_format($order['total_revenue'], 2);
+    $stmt->execute($base_params);
+    $recent_orders_rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $recent_orders = [];
+    foreach($recent_orders_rows as $row) {
+        $recent_orders[] = [
+            'platform_order_id' => $row['platform_order_id'],
+            'store_name' => $row['store_name'],
+            'ad_platform' => 'N/A', 
+            'status' => $row['status']
+        ];
     }
-    
-    // --- Assemble Final JSON Response ---
+
+
+    // --- Assemble Response ---
     $response = [
-        'net_profit_banner' => ['net_profit' => number_format($net_profit, 2)],
-        'kpis' => [
-            'delivered_revenue' => number_format($order_metrics['delivered_revenue'], 2),
-            'total_costs' => number_format($total_costs, 2),
-            'roas' => number_format($roas, 2),
-            'pending_profit' => number_format($order_metrics['pending_profit'], 2),
-            'lost_profit_rto' => number_format($order_metrics['lost_profit_rto'], 2),
+        'command_center' => [
+            'net_profit' => number_format($net_profit, 2),
             'cost_per_delivered' => number_format($cost_per_delivered, 2),
-            'breakeven_point' => 'N/A',
-            'gross_sales' => number_format($order_metrics['gross_sales'], 2),
-            'total_orders' => $order_metrics['total_orders'],
-            'shipped_orders' => $order_metrics['shipped_orders'],
-            'delivered_orders' => $order_metrics['delivered_orders'],
-            'delivery_rate' => number_format($delivery_rate, 2) . '%',
-            'return_rate_rto' => number_format($return_rate, 2) . '%',
-            'confirmation_rate' => 'N/A',
+            'ad_spend' => number_format($total_ad_spend, 2),
+            'delivered_revenue' => number_format($order_metrics['delivered_revenue'], 2),
+            'roi' => number_format($roi, 2) . '%'
         ],
-        'platform_breakdown' => $platform_breakdown_data,
-        'product_profitability' => $product_profitability_data,
-        'campaign_breakdown' => $campaign_breakdown_data,
+        'kpis' => [
+            'lost_profit_rto' => number_format($order_metrics['lost_profit_rto'], 2),
+            'fixed_charges' => number_format($total_fixed_costs, 2),
+            'breakeven_point' => (int)$breakeven_point . ' orders',
+            'gross_sales' => number_format($order_metrics['gross_sales'], 2),
+            'total_orders' => (int)$order_metrics['total_orders'],
+            'shipped_orders' => (int)$order_metrics['shipped_orders_count'],
+            'delivered_orders' => (int)$order_metrics['delivered_orders'],
+            'returned_orders' => (int)$order_metrics['returned_orders_count'],
+            'pending_profit' => number_format($order_metrics['pending_profit'], 2),
+            'delivery_rate' => number_format($delivery_rate, 2) . '%',
+            'return_rate' => number_format($return_rate, 2) . '%',
+            'confirmation_rate' => number_format($confirmation_rate, 2) . '%'
+        ],
+        'product_profitability' => $product_profitability,
+        'campaign_performance' => $campaign_performance,
         'recent_orders' => $recent_orders
     ];
 

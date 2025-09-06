@@ -20,85 +20,65 @@ require_setup();
     </div>
 </div>
 
-<div class="main-kpi-grid">
+<div class="command-center-grid">
     <div id="net-profit-banner" class="profit-banner">
         <div class="profit-banner-content">
             <h3>Net Profit</h3>
             <div class="value" id="net-profit-value">...</div>
         </div>
     </div>
-    <div class="kpi-card">
-        <h3>Cost Per Delivered</h3>
-        <div class="value" id="cost-per-delivered-value">...</div>
-    </div>
+    <div class="kpi-card"><h3>Cost Per Delivered</h3><div class="value" id="cost-per-delivered-value">...</div></div>
+    <div class="kpi-card"><h3>Ad Spend</h3><div class="value" id="ad-spend-value">...</div></div>
+    <div class="kpi-card"><h3>Delivered Revenue</h3><div class="value" id="delivered-revenue-value">...</div></div>
+    <div class="kpi-card"><h3>ROI</h3><div class="value" id="roi-value">...</div></div>
 </div>
 
-<div class="summary-cards-container">
-    <div class="summary-card">
-        <h3 class="section-title">Profitability & Analysis</h3>
-        <div class="main-kpis">
-            <div class="kpi-card"><h3>Delivered Revenue</h3><div class="value" id="delivered-revenue-value">...</div></div>
-            <div class="kpi-card"><h3>Total Costs</h3><div class="value" id="total-costs-value">...</div></div>
-            <div class="kpi-card"><h3>ROAS</h3><div class="value" id="roas-value">...</div></div>
-        </div>
-        <div class="detailed-kpis">
-            <div class="kpi-card"><h3>Pending Profit</h3><div class="value" id="pending-profit-value">...</div></div>
-            <div class="kpi-card"><h3>Lost Profit (RTO)</h3><div class="value" id="lost-profit-value">...</div></div>
-            <div class="kpi-card"><h3>Orders 'til Breakeven</h3><div class="value" id="breakeven-point-value">...</div></div>
-        </div>
-        <div class="summary-card-footer">
-            <button class="btn-toggle-details">Show More Details</button>
-        </div>
-    </div>
+<h3 class="section-title">Key Performance Indicators</h3>
+<div class="kpi-grid-detailed">
+    <div class="kpi-card"><h3>Lost Profit (RTO)</h3><div class="value" id="lost-profit-rto-value">...</div></div>
+    <div class="kpi-card"><h3>Fixed Charges</h3><div class="value" id="fixed-charges-value">...</div></div>
+    <div class="kpi-card"><h3>Breakeven Point</h3><div class="value" id="breakeven-point-value">...</div></div>
+    <div class="kpi-card"><h3>Pending Profit</h3><div class="value" id="pending-profit-value">...</div></div>
+    
+    <div class="kpi-card"><h3>Gross Sales (Potential)</h3><div class="value" id="gross-sales-value">...</div></div>
+    <div class="kpi-card"><h3>Total Orders (Leads)</h3><div class="value" id="total-orders-value">...</div></div>
+    <div class="kpi-card"><h3>Shipped Orders</h3><div class="value" id="shipped-orders-value">...</div></div>
+    <div class="kpi-card"><h3>Delivered Orders</h3><div class="value" id="delivered-orders-value">...</div></div>
+    <div class="kpi-card"><h3>Returned Orders (RTO)</h3><div class="value" id="returned-orders-value">...</div></div>
 
-    <div class="summary-card">
-        <h3 class="section-title">Operational Health & Sales Funnel</h3>
-        <div class="main-kpis">
-            <div class="kpi-card"><h3>Gross Sales</h3><div class="value" id="gross-sales-value">...</div></div>
-            <div class="kpi-card"><h3>Delivered Orders</h3><div class="value" id="delivered-orders-value">...</div></div>
-            <div class="kpi-card"><h3>Delivery Rate</h3><div class="value" id="delivery-rate-value">...</div></div>
-        </div>
-        <div class="detailed-kpis">
-            <div class="kpi-card"><h3>Total Orders</h3><div class="value" id="total-orders-value">...</div></div>
-            <div class="kpi-card"><h3>Shipped Orders</h3><div class="value" id="shipped-orders-value">...</div></div>
-            <div class="kpi-card"><h3>Return Rate (RTO)</h3><div class="value" id="return-rate-value">...</div></div>
-            <div class="kpi-card"><h3>Confirmation Rate</h3><div class="value" id="confirmation-rate-value">...</div></div>
-        </div>
-        <div class="summary-card-footer">
-            <button class="btn-toggle-details">Show More Details</button>
-        </div>
-    </div>
+    <div class="kpi-card"><h3>Delivery Rate</h3><div class="value" id="delivery-rate-value">...</div></div>
+    <div class="kpi-card"><h3>Return Rate (RTO)</h3><div class="value" id="return-rate-value">...</div></div>
+    <div class="kpi-card"><h3>Confirmation Rate</h3><div class="value" id="confirmation-rate-value">...</div></div>
 </div>
 
-
-<h3 class="section-title">Ad Platform Breakdown</h3>
-<div class="kpi-grid" id="platform-performance-grid">
-    </div>
-
-<h3 class="section-title">Product-Level Profitability</h3>
-<div class="table-container">
-    <table class="data-table">
-        <thead>
-            <tr>
-                <th>Product Name</th>
-                <th>Units Sold</th>
-                <th>Revenue</th>
-                <th>COGS</th>
-                <th>Ad Spend</th>
-                <th>Net Profit</th>
-            </tr>
-        </thead>
-        <tbody id="product-profitability-tbody"></tbody>
-    </table>
-</div>
 
 <div class="dashboard-columns">
-    <div class="column">
-        <h3 class="section-title">Campaign Breakdown</h3>
+    <div class="column-full">
+        <h3 class="section-title">Product-Level Profitability</h3>
         <div class="table-container">
             <table class="data-table">
-                <thead><tr><th>Campaign Name</th><th>Spend</th><th>CPM</th></tr></thead>
-                <tbody id="campaign-breakdown-tbody"></tbody>
+                <thead>
+                    <tr>
+                        <th>Product Name</th>
+                        <th>Units Sold</th>
+                        <th>Revenue</th>
+                        <th>Ad Spend</th>
+                        <th>Fixed Costs</th>
+                        <th>COGS</th>
+                        <th>Net Profit</th>
+                        <th>Delivery Rate</th>
+                    </tr>
+                </thead>
+                <tbody id="product-profitability-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+    <div class="column">
+        <h3 class="section-title">Campaign Performance</h3>
+        <div class="table-container">
+            <table class="data-table">
+                <thead><tr><th>Campaign</th><th>Platform</th><th>Spend</th><th>Orders</th><th>CPO</th></tr></thead>
+                <tbody id="campaign-performance-tbody"></tbody>
             </table>
         </div>
     </div>
@@ -106,7 +86,7 @@ require_setup();
         <h3 class="section-title">Recent Orders</h3>
         <div class="table-container">
             <table class="data-table">
-                <thead><tr><th>Order ID</th><th>Date</th><th>Revenue</th><th>Platform</th><th>Status</th></tr></thead>
+                <thead><tr><th>Order ID</th><th>Store</th><th>Ad Platform</th><th>Status</th></tr></thead>
                 <tbody id="recent-orders-tbody"></tbody>
             </table>
         </div>

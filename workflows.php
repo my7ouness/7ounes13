@@ -32,10 +32,12 @@ try {
     foreach ($workflows as $workflow) {
         $nodes = [];
         
+        // Check for Stores
         $stores_stmt = $pdo->prepare("SELECT 1 FROM stores WHERE workflow_id = ? LIMIT 1");
         $stores_stmt->execute([$workflow['id']]);
         if($stores_stmt->fetch()) $nodes[] = $base_logo_path . $logo_map['woocommerce'];
         
+        // Check for Ad Platforms
         $ads_stmt = $pdo->prepare("SELECT DISTINCT platform FROM ad_accounts WHERE workflow_id = ?");
         $ads_stmt->execute([$workflow['id']]);
         $platforms = $ads_stmt->fetchAll(PDO::FETCH_COLUMN);
@@ -45,13 +47,17 @@ try {
             }
         }
 
+        // Check for Shipping
         $shipping_stmt = $pdo->prepare("SELECT 1 FROM shipping_carriers WHERE workflow_id = ? LIMIT 1");
         $shipping_stmt->execute([$workflow['id']]);
         if($shipping_stmt->fetch()) $nodes[] = $base_logo_path . $logo_map['shipping'];
         
+        // MODIFIED: Check for Fixed Costs
         $costs_stmt = $pdo->prepare("SELECT 1 FROM costs WHERE workflow_id = ? LIMIT 1");
         $costs_stmt->execute([$workflow['id']]);
-        if($costs_stmt->fetch()) $nodes[] = $base_logo_path . $logo_map['cost'];
+        if($costs_stmt->fetch()) {
+            $nodes[] = $base_logo_path . $logo_map['cost'];
+        }
 
         $workflows_data[] = ['id' => $workflow['id'], 'name' => $workflow['name'], 'nodes' => array_unique($nodes)];
     }
